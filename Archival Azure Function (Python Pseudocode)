@@ -1,0 +1,29 @@
+import azure.cosmos.cosmos_client as cosmos_client
+from azure.storage.blob import BlobServiceClient
+from datetime import datetime, timedelta
+import json
+
+COSMOS_QUERY = "SELECT * FROM c WHERE c.timestamp < @cutoff"
+CUTOFF_DATE = (datetime.utcnow() - timedelta(days=90)).isoformat()
+
+# Connect to Cosmos DB
+cosmos = cosmos_client.CosmosClient(...)
+
+# Connect to Blob Storage
+blob_service_client = BlobServiceClient.from_connection_string(...)
+
+def archive_old_records():
+    container = cosmos.get_container_client("Billing")
+    records = container.query_items(
+        query=COSMOS_QUERY,
+        parameters=[{"name": "@cutoff", "value": CUTOFF_DATE}],
+        enable_cross_partition_query=True
+    )
+
+    for record in records:
+        blob_name = f"{record['id']}.json"
+        blob_client = blob_service_client.get_blob_client(container="archive", blob=blob_name)
+        blob_client.upload_blob(json.dumps(record), overwrite=True)
+
+        # Optionally delete from Cosmos after success
+        container.delete_item(record, partition_key=record["partitionKey"])
